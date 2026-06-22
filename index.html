@@ -497,9 +497,6 @@ async function hmacSha256Base64(secret,message){
 async function kwSearch(){
   const kw=document.getElementById('kw-input').value.trim()
   if(!kw){ showErr('kw-error','키워드를 입력해줘'); return }
-  const cid=localStorage.getItem('naver_cid')||'2338133'
-  const license=localStorage.getItem('naver_license')||'01000000000c27fc227800ee9c73d0fa472dc513bac7f750a54f7b3713d37fee0a8cecc170'
-  const secret=localStorage.getItem('naver_secret')||'AQAAAAAMJ/wieADunHPQ+kctxRO6rwzkfHltPV+rRzDn2MtY1g=='
 
   hideErr('kw-error')
   document.getElementById('kw-btn').disabled=true; document.getElementById('kw-btn').textContent='검색 중...'
@@ -510,13 +507,12 @@ async function kwSearch(){
   document.getElementById('kw-result-title').textContent=`"${kw}" 키워드 분석`
 
   try{
-    const timestamp=Date.now().toString()
-    const message=`${timestamp}.GET./keywordstool`
-    const signature=await hmacSha256Base64(secret,message)
-    const res=await fetch(`https://api.naver.com/keywordstool?hintKeywords=${encodeURIComponent(kw)}&showDetail=1`,{
-      headers:{'X-Timestamp':timestamp,'X-API-KEY':license,'X-Customer':cid,'X-Signature':signature}
+    const res=await fetch('https://wuvnhrdcfnqqvxzanpkg.supabase.co/functions/v1/rapid-handler',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_KEY,'apikey':SUPABASE_KEY},
+      body:JSON.stringify({keyword:kw})
     })
-    if(!res.ok) throw new Error(`네이버 API 오류 (${res.status})`)
+    if(!res.ok) throw new Error(`서버 오류 (${res.status})`)
     const data=await res.json()
     const items=(data.keywordList||[]).map(item=>({
       keyword:item.relKeyword,
