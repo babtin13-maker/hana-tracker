@@ -325,11 +325,9 @@ button{cursor:pointer;border:none;font-weight:500;transition:all 0.15s}
           <div id="kw-table-wrap" style="display:none">
             <table class="kw-table">
               <thead><tr>
-                <th style="width:38%">키워드</th>
-                <th style="width:14%">PC</th>
-                <th style="width:14%">모바일</th>
-                <th style="width:14%">합계</th>
-                <th style="width:20%">경쟁도</th>
+                <th style="width:50%">키워드</th>
+                <th style="width:20%">검색량</th>
+                <th style="width:30%">경쟁도</th>
               </tr></thead>
               <tbody id="kw-body"></tbody>
             </table>
@@ -487,19 +485,14 @@ function kwRenderRecent(){
 function kwSetAndSearch(kw){ document.getElementById('kw-input').value=kw; kwSearch() }
 function kwSaveRecent(kw){ kwRecent=[kw,...kwRecent.filter(k=>k!==kw)].slice(0,6); localStorage.setItem('kw_recent',JSON.stringify(kwRecent)); kwRenderRecent() }
 
-async function hmacSha256Base64(secret,message){
-  const enc=new TextEncoder()
-  const key=await crypto.subtle.importKey('raw',enc.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign'])
-  const sig=await crypto.subtle.sign('HMAC',key,enc.encode(message))
-  return btoa(String.fromCharCode(...new Uint8Array(sig)))
-}
-
 async function kwSearch(){
   const kw=document.getElementById('kw-input').value.trim()
   if(!kw){ showErr('kw-error','키워드를 입력해줘'); return }
+  const apiKey=localStorage.getItem('hana_api_key')||''
+  if(!apiKey){ showErr('kw-error','설정 탭에서 Anthropic API 키를 먼저 입력해줘'); return }
 
   hideErr('kw-error')
-  document.getElementById('kw-btn').disabled=true; document.getElementById('kw-btn').textContent='검색 중...'
+  document.getElementById('kw-btn').disabled=true; document.getElementById('kw-btn').textContent='분석 중...'
   document.getElementById('kw-result-section').style.display='block'
   document.getElementById('kw-loading').style.display='block'
   document.getElementById('kw-table-wrap').style.display='none'
@@ -507,56 +500,71 @@ async function kwSearch(){
   document.getElementById('kw-result-title').textContent=`"${kw}" 키워드 분석`
 
   try{
-    const res=await fetch('https://wuvnhrdcfnqqvxzanpkg.supabase.co/functions/v1/rapid-handler',{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_KEY,'apikey':SUPABASE_KEY},
-      body:JSON.stringify({keyword:kw})
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-6',max_tokens:2000,
+        messages:[{role:'user',content:`네이버 블로그 SEO 전문가야. "${kw}" 주제로 네이버 블로그를 쓰려고 해.
+
+아래 형식으로 JSON만 반환해줘. 다른 말은 하지 마:
+
+{
+  "keywords": [
+    {"keyword": "키워드명", "volume": "높음|중간|낮음", "competition": "높음|중간|낮음", "recommended": true|false},
+    ...총 20개
+  ],
+  "strategy": "TOP3 공략 키워드와 SEO 전략을 3-4문장으로"
+}`}]
+      })
     })
-    if(!res.ok) throw new Error(`서버 오류 (${res.status})`)
     const data=await res.json()
-    const items=(data.keywordList||[]).map(item=>({
-      keyword:item.relKeyword,
-      pc:item.monthlyPcQcCnt==='< 10'?5:parseInt(item.monthlyPcQcCnt)||0,
-      mobile:item.monthlyMobileQcCnt==='< 10'?5:parseInt(item.monthlyMobileQcCnt)||0,
-      compIdx:item.compIdx
-    })).map(i=>({...i,total:i.pc+i.mobile})).sort((a,b)=>b.total-a.total).slice(0,30)
+    let parsed
+    try{
+      const text=data.content?.[0]?.text||'{}'
+      parsed=JSON.parse(text.replace(/```json|```/g,'').trim())
+    }catch(e){ throw new Error('응답 파싱 실패') }
+
+    const items=(parsed.keywords||[]).map(k=>({
+      keyword:k.keyword,
+      volume:k.volume,
+      competition:k.competition,
+      recommended:k.recommended
+    }))
 
     kwLastResults=items
     kwSaveRecent(kw)
     document.getElementById('kw-count').textContent=`${items.length}개 키워드`
     document.getElementById('kw-body').innerHTML=items.map(item=>{
-      const cc=item.compIdx==='높음'?'comp-high':item.compIdx==='중간'?'comp-mid':'comp-low'
-      const cp=item.compIdx==='높음'?85:item.compIdx==='중간'?50:20
-      const isRec=item.compIdx==='낮음'&&item.total>100
-      const isHot=item.total>10000
-      return `<tr><td><span class="kw-text">${escHtml(item.keyword)}</span>${isRec?'<span class="badge-rec">추천</span>':''}${isHot?'<span class="badge-rec badge-hot">🔥인기</span>':''}</td><td class="vol">${item.pc.toLocaleString()}</td><td class="vol">${item.mobile.toLocaleString()}</td><td class="vol" style="color:var(--pink-500);font-weight:700">${item.total.toLocaleString()}</td><td><div class="comp-bar-wrap ${cc}"><div class="comp-bar"><div class="comp-fill" style="width:${cp}%"></div></div><span class="comp-label">${item.compIdx}</span></div></td></tr>`
+      const cc=item.competition==='높음'?'comp-high':item.competition==='중간'?'comp-mid':'comp-low'
+      const cp=item.competition==='높음'?85:item.competition==='중간'?50:20
+      const vc=item.volume==='높음'?'style="color:var(--pink-500);font-weight:700"':item.volume==='중간'?'style="color:var(--gray-700);font-weight:600"':'style="color:var(--gray-400)"'
+      return `<tr>
+        <td><span class="kw-text">${escHtml(item.keyword)}</span>${item.recommended?'<span class="badge-rec">추천</span>':''}</td>
+        <td ${vc}>${item.volume}</td>
+        <td><div class="comp-bar-wrap ${cc}"><div class="comp-bar"><div class="comp-fill" style="width:${cp}%"></div></div><span class="comp-label">${item.competition}</span></div></td>
+      </tr>`
     }).join('')
+
     document.getElementById('kw-loading').style.display='none'
     document.getElementById('kw-table-wrap').style.display='block'
 
-    const apiKey=localStorage.getItem('hana_api_key')||''
-    if(apiKey){ document.getElementById('kw-ai-section').style.display='block'; document.getElementById('kw-ai-text').textContent='분석 중...'; kwAnalyzeClaude(kw,items,apiKey) }
+    if(parsed.strategy){
+      document.getElementById('kw-ai-section').style.display='block'
+      document.getElementById('kw-ai-text').textContent=parsed.strategy
+    }
 
   }catch(e){
     document.getElementById('kw-loading').style.display='none'
-    showErr('kw-error',e.message+' — CORS 문제일 수 있어요. 네이버 API는 서버에서만 호출 가능해요.')
+    showErr('kw-error','분석 실패: '+e.message)
   }finally{
     document.getElementById('kw-btn').disabled=false; document.getElementById('kw-btn').textContent='검색하기'
   }
 }
 
-async function kwAnalyzeClaude(topic,keywords,apiKey){
-  const top10=keywords.slice(0,10).map(k=>`${k.keyword} (월 ${k.total.toLocaleString()}회, 경쟁도: ${k.compIdx})`).join('\n')
-  try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:600,messages:[{role:'user',content:`네이버 블로그 SEO 전문가야. 아래는 "${topic}" 주제의 실제 네이버 검색량 데이터야.\n\n${top10}\n\n다음 3가지를 분석해줘:\n1. 지금 당장 공략할 키워드 TOP 3 (이유 포함)\n2. 제목에 꼭 넣어야 할 핵심 키워드 조합\n3. 이 주제로 블로그 쓸 때 SEO 전략 한 줄 팁\n\n간결하고 실용적으로, 한국어로.`}]})})
-    const data=await res.json()
-    document.getElementById('kw-ai-text').textContent=data.content?.[0]?.text||'분석 실패'
-  }catch(e){ document.getElementById('kw-ai-text').textContent='Claude 분석 실패: API 키를 확인해줘' }
-}
-
 function kwCopyAll(){
   if(!kwLastResults.length) return
-  const text=['키워드\tPC\t모바일\t합계\t경쟁도',...kwLastResults.map(k=>`${k.keyword}\t${k.pc}\t${k.mobile}\t${k.total}\t${k.compIdx}`)].join('\n')
+  const text=['키워드\t검색량\t경쟁도',...kwLastResults.map(k=>`${k.keyword}\t${k.volume}\t${k.competition}`)].join('\n')
   navigator.clipboard.writeText(text).then(()=>{ const btn=document.querySelector('.btn-copy'); btn.textContent='복사됨 ✓'; setTimeout(()=>btn.textContent='전체 복사',1500) })
 }
 
