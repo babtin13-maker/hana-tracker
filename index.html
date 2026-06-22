@@ -524,10 +524,28 @@ async function getYtRecommend(type){
   }else if(type==='growth'){
     prompt=`마케팅 성장 전략, 브랜딩, 사업 마인드셋을 공부하기 좋은 유튜브 채널/영상 5개를 추천해줘. 한국어+영어 채널 포함, 채널명, 대표 콘텐츠, 추천 이유, 검색 키워드 포함해서.`
   }
+  // 프롬프트 끝에 JSON 형식 요청 추가
+  prompt += '\n\n반드시 아래 JSON 형식으로만 응답해줘. 다른 말은 하지 마:\n[{"channel":"채널명","title":"추천 영상/콘텐츠 제목","reason":"추천 이유 한 줄","search":"유튜브 검색 키워드"},...]'
+
   try{
     const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:800,messages:[{role:'user',content:prompt}]})})
     const data=await res.json()
-    document.getElementById('yt-rec-text').textContent=data.content?.[0]?.text||'추천 실패'
+    const raw=data.content?.[0]?.text||'[]'
+    let items=[]
+    try{ items=JSON.parse(raw.replace(/```json|```/g,'').trim()) }catch(e){ document.getElementById('yt-rec-text').innerHTML=raw; document.getElementById('yt-rec-result').style.display='block'; return }
+
+    document.getElementById('yt-rec-text').innerHTML=items.map((item,i)=>`
+      <div style="border-top:${i===0?'none':'1.5px solid var(--pink-50)'};padding:${i===0?'0':'12px 0 0'};margin-top:${i===0?'0':'12px'}">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <span style="font-weight:600;font-size:14px;color:var(--gray-800)">${i+1}. ${escHtml(item.channel)}</span>
+          <a href="https://www.youtube.com/results?search_query=${encodeURIComponent(item.search)}" target="_blank"
+            style="font-size:12px;font-weight:600;color:var(--pink-500);background:var(--pink-50);border:1.5px solid var(--pink-200);padding:4px 12px;border-radius:99px;text-decoration:none;white-space:nowrap">
+            ▶ 유튜브에서 보기
+          </a>
+        </div>
+        <div style="font-size:13px;color:var(--pink-600);margin-bottom:3px">📺 ${escHtml(item.title)}</div>
+        <div style="font-size:12px;color:var(--gray-600)">${escHtml(item.reason)}</div>
+      </div>`).join('')
     document.getElementById('yt-rec-result').style.display='block'
   }catch(e){ alert('추천 실패: '+e.message) }
   finally{ document.getElementById('yt-rec-loading').style.display='none' }
