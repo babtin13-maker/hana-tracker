@@ -251,6 +251,24 @@ button{cursor:pointer;border:none;font-weight:500;transition:all 0.15s}
         <div class="error-msg" id="inp-error" style="display:none"></div>
         <button class="btn-primary" onclick="addInput()">저장하기</button>
       </div>
+      <div class="card">
+        <div class="card-title">🎬 유튜브 추천</div>
+        <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+          <button class="btn-ghost" onclick="getYtRecommend('history')">📚 내 기록 기반 추천</button>
+          <button class="btn-ghost" onclick="getYtRecommend('beginner')">🌱 입문자 추천</button>
+          <button class="btn-ghost" onclick="getYtRecommend('seo')">🔍 SEO 추천</button>
+          <button class="btn-ghost" onclick="getYtRecommend('sns')">📱 SNS 마케팅 추천</button>
+          <button class="btn-ghost" onclick="getYtRecommend('growth')">🚀 성장 전략 추천</button>
+        </div>
+        <div id="yt-rec-loading" style="display:none;font-size:13px;color:var(--gray-400);padding:8px 0">추천 영상 찾는 중...</div>
+        <div id="yt-rec-result" style="display:none">
+          <div class="ai-box">
+            <div class="ai-label" id="yt-rec-label">추천 결과</div>
+            <div class="ai-text" id="yt-rec-text"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="card"><div class="card-title">인풋 로그 (<span id="inp-count">0</span>건)</div><div id="inp-log"><div class="empty">아직 기록이 없어요</div></div></div>
     </div>
 
@@ -484,6 +502,36 @@ function kwRenderRecent(){
 }
 function kwSetAndSearch(kw){ document.getElementById('kw-input').value=kw; kwSearch() }
 function kwSaveRecent(kw){ kwRecent=[kw,...kwRecent.filter(k=>k!==kw)].slice(0,6); localStorage.setItem('kw_recent',JSON.stringify(kwRecent)); kwRenderRecent() }
+
+async function getYtRecommend(type){
+  const apiKey=localStorage.getItem('hana_api_key')||''
+  if(!apiKey){ alert('설정 탭에서 Anthropic API 키를 먼저 입력해줘'); return }
+  document.getElementById('yt-rec-loading').style.display='block'
+  document.getElementById('yt-rec-result').style.display='none'
+  const labels={'history':'내 기록 기반 추천','beginner':'입문자 추천','seo':'SEO 추천','sns':'SNS 마케팅 추천','growth':'성장 전략 추천'}
+  document.getElementById('yt-rec-label').textContent=labels[type]
+  let prompt=''
+  if(type==='history'){
+    const recent=inputs.slice(0,10).map(i=>`${i.format}: ${i.title}`).join('\n')
+    if(!recent){ alert('인풋 기록이 없어요. 먼저 몇 개 기록해줘!'); document.getElementById('yt-rec-loading').style.display='none'; return }
+    prompt=`마케팅 공부 중인 사람의 최근 인풋 기록이야:\n${recent}\n\n이 사람이 다음으로 봐야 할 유튜브 영상/채널 5개를 추천해줘. 기록 패턴을 분석해서 부족한 부분을 채워주는 방향으로. 채널명, 추천 이유, 검색 키워드 포함해서.`
+  }else if(type==='beginner'){
+    prompt=`마케팅을 처음 공부하는 사람에게 추천할 유튜브 채널/영상 5개를 알려줘. 한국어 채널 위주로, 채널명, 대표 콘텐츠, 추천 이유, 검색 키워드 포함해서.`
+  }else if(type==='seo'){
+    prompt=`네이버 블로그 SEO와 검색 마케팅을 공부하기 좋은 유튜브 채널/영상 5개를 추천해줘. 한국어 채널 위주로, 채널명, 대표 콘텐츠, 추천 이유, 검색 키워드 포함해서.`
+  }else if(type==='sns'){
+    prompt=`인스타그램, 틱톡, 유튜브 등 SNS 마케팅을 공부하기 좋은 유튜브 채널/영상 5개를 추천해줘. 한국어 채널 위주로, 채널명, 대표 콘텐츠, 추천 이유, 검색 키워드 포함해서.`
+  }else if(type==='growth'){
+    prompt=`마케팅 성장 전략, 브랜딩, 사업 마인드셋을 공부하기 좋은 유튜브 채널/영상 5개를 추천해줘. 한국어+영어 채널 포함, 채널명, 대표 콘텐츠, 추천 이유, 검색 키워드 포함해서.`
+  }
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:800,messages:[{role:'user',content:prompt}]})})
+    const data=await res.json()
+    document.getElementById('yt-rec-text').textContent=data.content?.[0]?.text||'추천 실패'
+    document.getElementById('yt-rec-result').style.display='block'
+  }catch(e){ alert('추천 실패: '+e.message) }
+  finally{ document.getElementById('yt-rec-loading').style.display='none' }
+}
 
 async function kwSearch(){
   const kw=document.getElementById('kw-input').value.trim()
